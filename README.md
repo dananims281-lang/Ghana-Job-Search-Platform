@@ -2,9 +2,9 @@
 
 FastAPI service backed by PostgreSQL. Currently implements:
 
-- `POST /jobListings` — employer creates a job listing (requires an existing `company_id`)
+- `POST /jobs` — employer creates a job (requires an existing `company_id`)
 
-Tables: `company`, `job_listing` (see `app/models.py`).
+Tables: `company`, `jobs` (see `app/models.py`). Schema changes for existing databases live in `migrations/`.
 
 ## Setup
 
@@ -31,38 +31,73 @@ Tables: `company`, `job_listing` (see `app/models.py`).
    ```
    uvicorn app.main:app --reload
    ```
-   This also creates the `company` and `job_listing` tables on startup if they don't exist yet.
+   This also creates the `company` and `jobs` tables on startup if they don't exist yet.
 
 5. Open the interactive docs at http://127.0.0.1:8000/docs
 
-## Testing POST /jobListings
+## Upgrading an existing database
 
-Since `job_listing` requires a `company_id` foreign key, insert a test company first
+If your database already has tables from an earlier version, `create_all` will NOT alter them.
+Run the migrations you haven't run yet, in order:
+
+```
+psql myapp -f migrations/001_expand_job_listing.sql   # expands job_listing to the new fields
+psql myapp -f migrations/002_rename_job_listing_to_jobs.sql   # renames job_listing -> jobs
+```
+
+It backfills old rows with `country = 'GH'`, `salary_currency = 'GHS'`, `category = 'other'`
+and `employment_type = 'full_time'`, so review those rows afterwards.
+On a fresh database you can skip this; starting the app creates the new tables.
+
+## Testing POST /jobs
+
+Since `jobs` requires a `company_id` foreign key, insert a test company first
 (via pgAdmin's Query Tool, or `psql myapp`):
 
 ```sql
-INSERT INTO company (company_id, name, verified_at)
-VALUES (gen_random_uuid(), 'Acme Inc', now())
+INSERT INTO company (company_id, name, website, verified_at)
+VALUES (gen_random_uuid(), 'Acme Logistics', 'https://acmelogistics.com', now())
 RETURNING company_id;
 ```
 
 Copy the returned `company_id`, then call the API:
 
 ```
-curl -X POST http://127.0.0.1:8000/jobListings \
+curl -X POST http://127.0.0.1:8000/jobs \
   -H "Content-Type: application/json" \
   -d '{
         "company_id": "PASTE_COMPANY_ID_HERE",
-        "jobName": "Backend Engineer",
-        "location": "Remote",
-        "salary": 120000,
-        "description": "Build and maintain our API services."
+        "title": "Backend Developer",
+        "description": "Build and maintain our API services.",
+        "category": "technology",
+        "employment_type": "full_time",
+        "experience_level": "mid",
+        "location": {
+          "work_mode": "hybrid",
+          "country": "GH",
+          "region": "Greater Accra",
+          "city": "Accra"
+        },
+        "salary": { "min": 8000, "max": 12000, "currency": "GHS", "period": "monthly" },
+        "requirements": ["3+ years Python", "Experience with PostgreSQL"],
+        "benefits": ["Health insurance"],
+        "expires_at": "2027-01-31T23:59:59Z"
       }'
 ```
 
+Field rules:
+
+- `employment_type`: `full_time` | `part_time` | `contract` | `internship` | `temporary`
+- `experience_level` (optional): `entry` | `mid` | `senior` | `lead`
+- `status` (optional, default `open`): `open` | `draft`
+- `location.work_mode`: `onsite` | `hybrid` | `remote`. `city` is required unless `remote`.
+- `location.country`: 2-letter ISO code (e.g. `GH`). `salary.currency`: 3-letter ISO code (e.g. `GHS`).
+- `salary` is optional. If sent, it needs `currency`, `period` (`hourly` | `monthly` | `yearly`) and at least `min` or `max`.
+
 ## Roadmap (not yet implemented)
 
-- `GET /jobListings?category=&location=`
+- `GET /jobs?category=&country=&city=`
+- `GET /jobs/{job_id}`
 - `POST /accounts` (user + employer signup)
 - `POST /oneclickapply/{jobId}`
 - `GET /userapply?jobId={jobId}`
