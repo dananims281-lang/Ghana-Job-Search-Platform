@@ -37,7 +37,16 @@ class Company(Base):
     company_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, nullable=False)
     website = Column(String(500), nullable=True)
+    description = Column(Text, nullable=True)
+
+    # Headquarters location
+    country = Column(String(2), nullable=True)   # ISO 3166-1 alpha-2, e.g. "GH"
+    region = Column(String(100), nullable=True)  # e.g. "Greater Accra"
+    city = Column(String(100), nullable=True)
+
+    # Set by an admin after checking the business is legit; never by the employer.
     verified_at = Column(TIMESTAMP, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     jobs = relationship(
         "Job", back_populates="company", cascade="all, delete-orphan"

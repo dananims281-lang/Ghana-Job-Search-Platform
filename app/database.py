@@ -7,7 +7,7 @@ load_dotenv()
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+psycopg://localhost:5432/myapp",
+    "postgresql+psycopg://localhost:5432/ghana_jobs",
 )
 
 # Use UTC for every connection so timestamps come back as UTC ("...Z"), not server local time.

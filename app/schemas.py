@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.enums import EmploymentType, ExperienceLevel, JobStatus, SalaryPeriod, WorkMode
 
@@ -82,6 +82,43 @@ class JobCreate(BaseModel):
         return v
 
 
+# ---------- Request: POST /companies ----------
+
+class CompanyLocationIn(BaseModel):
+    country: str = Field(min_length=2, max_length=2, description="ISO 3166-1 alpha-2, e.g. GH")
+    region: Optional[str] = Field(default=None, max_length=100)
+    city: Optional[str] = Field(default=None, max_length=100)
+
+    @field_validator("country")
+    @classmethod
+    def upper_country(cls, v: str) -> str:
+        return v.upper()
+
+
+class CompanyCreate(BaseModel):
+    """Body for POST /companies. `verified` is not accepted: it is set by an admin."""
+
+    name: str = Field(min_length=1, max_length=200)
+    website: Optional[HttpUrl] = None
+    description: Optional[str] = None
+    location: Optional[CompanyLocationIn] = None
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("name cannot be blank")
+        return v
+
+    @field_validator("website")
+    @classmethod
+    def website_length(cls, v: Optional[HttpUrl]) -> Optional[HttpUrl]:
+        if v is not None and len(str(v)) > 500:
+            raise ValueError("website must be at most 500 characters")
+        return v
+
+
 # ---------- Response ----------
 
 class CompanyOut(BaseModel):
@@ -89,6 +126,45 @@ class CompanyOut(BaseModel):
     name: str
     website: Optional[str]
     verified: bool
+
+
+class CompanyLocationOut(BaseModel):
+    country: Optional[str]
+    region: Optional[str]
+    city: Optional[str]
+
+
+class CompanyDetailOut(BaseModel):
+    """Full company profile, returned by GET/POST /companies."""
+
+    id: uuid.UUID
+    name: str
+    website: Optional[str]
+    description: Optional[str]
+    verified: bool
+    location: Optional[CompanyLocationOut]
+    open_jobs_count: int
+    created_at: datetime
+
+    @classmethod
+    def from_model(cls, company, open_jobs_count: int = 0) -> "CompanyDetailOut":
+        has_location = any([company.country, company.region, company.city])
+        return cls(
+            id=company.company_id,
+            name=company.name,
+            website=company.website,
+            description=company.description,
+            verified=company.verified,
+            location=CompanyLocationOut(
+                country=company.country,
+                region=company.region,
+                city=company.city,
+            )
+            if has_location
+            else None,
+            open_jobs_count=open_jobs_count,
+            created_at=company.created_at,
+        )
 
 
 class LocationOut(BaseModel):

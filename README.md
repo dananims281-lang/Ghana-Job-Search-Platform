@@ -2,6 +2,8 @@
 
 FastAPI service backed by PostgreSQL. Currently implements:
 
+- `POST /companies` — employer registers a company (starts unverified)
+- `GET /companies/{company_id}` — public company profile, including `open_jobs_count`
 - `POST /jobs` — employer creates a job (requires an existing `company_id`)
 
 Tables: `company`, `jobs` (see `app/models.py`). Schema changes for existing databases live in `migrations/`.
@@ -15,10 +17,10 @@ Tables: `company`, `jobs` (see `app/models.py`). Schema changes for existing dat
    pip install -r requirements.txt
    ```
 
-2. Make sure Postgres is running and the `myapp` database exists:
+2. Make sure Postgres is running and the `ghana_jobs` database exists:
    ```
    brew services start postgresql@16
-   createdb myapp
+   createdb ghana_jobs
    ```
 
 3. Copy `.env.example` to `.env` and set your `DATABASE_URL`:
@@ -41,26 +43,46 @@ If your database already has tables from an earlier version, `create_all` will N
 Run the migrations you haven't run yet, in order:
 
 ```
-psql myapp -f migrations/001_expand_job_listing.sql   # expands job_listing to the new fields
-psql myapp -f migrations/002_rename_job_listing_to_jobs.sql   # renames job_listing -> jobs
+psql ghana_jobs -f migrations/001_expand_job_listing.sql   # expands job_listing to the new fields
+psql ghana_jobs -f migrations/002_rename_job_listing_to_jobs.sql   # renames job_listing -> jobs
+psql ghana_jobs -f migrations/003_expand_company.sql   # adds description, location, created_at to company
 ```
 
 It backfills old rows with `country = 'GH'`, `salary_currency = 'GHS'`, `category = 'other'`
 and `employment_type = 'full_time'`, so review those rows afterwards.
 On a fresh database you can skip this; starting the app creates the new tables.
 
-## Testing POST /jobs
+## Testing the company endpoints
 
-Since `jobs` requires a `company_id` foreign key, insert a test company first
-(via pgAdmin's Query Tool, or `psql myapp`):
+Create a company:
 
-```sql
-INSERT INTO company (company_id, name, website, verified_at)
-VALUES (gen_random_uuid(), 'Acme Logistics', 'https://acmelogistics.com', now())
-RETURNING company_id;
+```
+curl -X POST http://127.0.0.1:8000/companies \
+  -H "Content-Type: application/json" \
+  -d '{
+        "name": "Acme Logistics",
+        "website": "https://acmelogistics.com",
+        "description": "Freight and logistics across West Africa.",
+        "location": { "country": "GH", "region": "Greater Accra", "city": "Accra" }
+      }'
 ```
 
-Copy the returned `company_id`, then call the API:
+Only `name` is required. `website` must be a full URL (`https://...`), `location.country` a 2-letter ISO code.
+New companies are always unverified; `verified` is not accepted from the client.
+To mark one verified while testing: `UPDATE company SET verified_at = now() WHERE company_id = '...';`
+
+Fetch it (copy the `id` from the response above):
+
+```
+curl http://127.0.0.1:8000/companies/PASTE_COMPANY_ID_HERE
+```
+
+`open_jobs_count` counts that company's jobs with `status = open`. An unknown id returns 404.
+
+## Testing POST /jobs
+
+Since `jobs` requires a `company_id`, create a company first with `POST /companies` (above),
+copy its `id`, then call the API:
 
 ```
 curl -X POST http://127.0.0.1:8000/jobs \
