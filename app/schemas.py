@@ -1,10 +1,17 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
-from app.enums import EmploymentType, ExperienceLevel, JobStatus, SalaryPeriod, WorkMode
+from app.enums import (
+    CompanyRole,
+    EmploymentType,
+    ExperienceLevel,
+    JobStatus,
+    SalaryPeriod,
+    WorkMode,
+)
 
 
 # ---------- Request: POST /jobs ----------
@@ -50,7 +57,7 @@ class SalaryIn(BaseModel):
 class JobCreate(BaseModel):
     """Body for POST /jobs (employer input)."""
 
-    company_id: uuid.UUID  # TODO: take from the logged-in employer once auth exists
+    company_id: uuid.UUID  # TODO: take from the logged-in employer once auth exists (see T4.2 in app/routers/jobs.py)
     title: str = Field(min_length=1, max_length=150)
     description: str = Field(min_length=1)
     category: str = Field(min_length=1, max_length=50)
@@ -235,3 +242,115 @@ class JobOut(BaseModel):
             updated_at=job.updated_at,
             expires_at=job.expires_at,
         )
+
+
+# ---------- Auth ----------
+
+class GoogleAuthRequest(BaseModel):
+    """Body for POST /auth/google: the ID token ("credential") Google gave the frontend."""
+
+    id_token: str = Field(min_length=1)
+
+
+class DevLoginRequest(BaseModel):
+    """Body for POST /auth/dev-login (local development only)."""
+
+    email: str = Field(min_length=3, max_length=320)
+    full_name: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("email")
+    @classmethod
+    def basic_email(cls, v: str) -> str:
+        v = v.strip().lower()
+        local, _, domain = v.partition("@")
+        if not local or "." not in domain or " " in v:
+            raise ValueError("enter a valid email address")
+        return v
+
+
+class RefreshRequest(BaseModel):
+    """Body for POST /auth/refresh and POST /auth/logout."""
+
+    refresh_token: str = Field(min_length=1)
+
+
+class UserOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    full_name: Optional[str]
+    phone: Optional[str]
+    avatar_url: Optional[str]
+    created_at: datetime
+
+    @classmethod
+    def from_model(cls, user) -> "UserOut":
+        return cls(
+            id=user.user_id,
+            email=user.email,
+            full_name=user.full_name,
+            phone=user.phone,
+            avatar_url=user.avatar_url,
+            created_at=user.created_at,
+        )
+
+
+class MembershipOut(BaseModel):
+    """One company the user can act for. An empty list means a job seeker."""
+
+    company_id: uuid.UUID
+    company_name: str
+    role: CompanyRole
+    verified: bool
+
+
+class MeOut(BaseModel):
+    """Returned by GET /me (and PATCH /me): who is signed in, and their companies."""
+
+    user: UserOut
+    memberships: list[MembershipOut]
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int  # seconds until access_token expires
+
+
+class AuthResponse(TokenResponse):
+    """Returned by sign-in. The frontend routes on is_new_user and memberships."""
+
+    is_new_user: bool
+    user: UserOut
+    memberships: list[MembershipOut]
+
+
+# ---------- Company members (T4.4) ----------
+
+class MemberAddRequest(BaseModel):
+    """Body for POST /companies/{company_id}/members.
+
+    `role` can't be "owner": a company has one owner, set when it is created (T4.1).
+    """
+
+    email: str = Field(min_length=3, max_length=320)
+    role: Literal[CompanyRole.admin, CompanyRole.recruiter] = CompanyRole.recruiter
+
+    @field_validator("email")
+    @classmethod
+    def basic_email(cls, v: str) -> str:
+        # Lowercased so it matches app_user.email and company_invite.email exactly.
+        v = v.strip().lower()
+        local, _, domain = v.partition("@")
+        if not local or "." not in domain or " " in v:
+            raise ValueError("enter a valid email address")
+        return v
+
+
+class MemberAddOut(BaseModel):
+    """Result of POST /companies/{company_id}/members."""
+
+    status: Literal["added", "invited"]  # added = already had an account; invited = not yet
+    email: str
+    role: CompanyRole
+    expires_at: Optional[datetime] = None  # only for status "invited"

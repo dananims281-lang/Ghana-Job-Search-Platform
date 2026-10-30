@@ -32,3 +32,14 @@ class SalaryPeriod(str, Enum):
     hourly = "hourly"
     monthly = "monthly"
     yearly = "yearly"
+
+
+class CompanyRole(str, Enum):
+    owner = "owner"
+    admin = "admin"
+    recruiter = "recruiter"
+
+
+class AuthProvider(str, Enum):
+    google = "google"
+    dev = "dev"  # only created by POST /auth/dev-login when ENABLE_DEV_LOGIN=true
